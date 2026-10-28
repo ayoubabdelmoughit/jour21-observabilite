@@ -191,7 +191,7 @@ def build_graph(collection: Collection, dlq_collection: Optional[Collection] = N
             "text": state["text"],
             "session_id": state.get("session_id") or "no-session",
             "duration_ms": state.get("duration_ms"),
-            "cost_usd": 0.0
+            "cost_usd": 0.0,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "_insert_order": time.time(),
         }
