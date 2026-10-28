@@ -1,0 +1,584 @@
+<title>Observabilité Modération</title>
+<style>
+/* Layout: en-tête compacte + grille de métriques + bande d'alertes + tableau de logs repliable.
+   Palette: fond neutre froid, accent indigo pour les données, rouge/orange/jaune réservés aux alertes. */
+:root{
+  --bg:#f3f4f7; --surface:#ffffff; --surface-2:#eceef3; --border:#d9dce4;
+  --fg:#1b1f2a; --fg-muted:#5b6172; --accent:#4f5fd6; --accent-soft:#e7e9fb;
+  --ok:#1e8a5f; --ok-soft:#e3f5ec;
+  --warn:#b4790f; --warn-soft:#fbead0;
+  --crit:#c23b3b; --crit-soft:#fbe4e4;
+  --shadow: 0 1px 2px rgba(20,22,35,.06), 0 8px 24px -12px rgba(20,22,35,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#13141b; --surface:#1b1d27; --surface-2:#22242f; --border:#31333f;
+    --fg:#eceef3; --fg-muted:#9aa0b4; --accent:#8d97f2; --accent-soft:#272a44;
+    --ok:#5fd3a0; --ok-soft:#163327;
+    --warn:#f0b549; --warn-soft:#3a2c0f;
+    --crit:#f0797e; --crit-soft:#3a1c1e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#13141b; --surface:#1b1d27; --surface-2:#22242f; --border:#31333f;
+  --fg:#eceef3; --fg-muted:#9aa0b4; --accent:#8d97f2; --accent-soft:#272a44;
+  --ok:#5fd3a0; --ok-soft:#163327;
+  --warn:#f0b549; --warn-soft:#3a2c0f;
+  --crit:#f0797e; --crit-soft:#3a1c1e;
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:'Inter','Segoe UI',system-ui,sans-serif;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-block:24px 48px;
+  max-width:880px; margin:0 auto;
+}
+h1,h2,h3{font-family:'Fraunces','Georgia',serif; text-wrap:balance; margin:0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums}
+
+header{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px; margin-bottom:20px}
+header .eyebrow{color:var(--accent); font-size:12px; letter-spacing:.08em; text-transform:uppercase; font-weight:600}
+header h1{font-size:28px; font-weight:600; margin-top:2px}
+header p{color:var(--fg-muted); font-size:13px; margin-top:4px}
+
+.card{background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow)}
+
+.setup{padding:16px; margin-bottom:20px}
+.setup .steps{font-size:12px; color:var(--fg-muted); margin-bottom:10px; line-height:1.5}
+.setup .steps b{color:var(--fg)}
+.setup textarea{
+  width:100%; min-height:110px; resize:vertical; background:var(--surface-2); border:1px solid var(--border); color:var(--fg);
+  border-radius:8px; padding:10px 11px; font-size:12px; font-family:'JetBrains Mono',ui-monospace,monospace; line-height:1.5;
+}
+.setup textarea:focus{outline:2px solid var(--accent); outline-offset:1px}
+.setup .row{display:flex; justify-content:flex-end; gap:8px; margin-top:10px}
+.setup input{
+  width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--fg);
+  border-radius:8px; padding:9px 11px; font-size:13px; font-family:inherit; margin-bottom:8px;
+}
+.setup input:focus{outline:2px solid var(--accent); outline-offset:1px}
+
+.tabs{display:flex; gap:4px; margin-bottom:12px; border-bottom:1px solid var(--border)}
+.tab{font-size:13px; font-weight:600; color:var(--fg-muted); background:transparent; border:none; border-bottom:2px solid transparent;
+  padding:8px 4px; cursor:pointer; margin-right:16px; border-radius:0}
+.tab.active{color:var(--accent); border-bottom-color:var(--accent)}
+.tab:hover{background:transparent; color:var(--fg)}
+.panel{display:none}
+.panel.active{display:block}
+.auto-row{display:flex; align-items:center; gap:8px; margin-top:4px}
+.auto-row label{font-size:12px; color:var(--fg-muted); display:flex; align-items:center; gap:6px}
+button{
+  font-family:inherit; font-size:13px; font-weight:600; border-radius:8px; border:1px solid transparent;
+  padding:9px 16px; cursor:pointer; transition:transform .1s ease, opacity .15s ease;
+}
+button:active{transform:scale(.97)}
+button.primary{background:var(--accent); color:#fff}
+button.primary:hover{opacity:.9}
+button.ghost{background:transparent; border-color:var(--border); color:var(--fg)}
+button.ghost:hover{background:var(--surface-2)}
+button:disabled{opacity:.5; cursor:not-allowed}
+
+.status-row{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--fg-muted); margin-bottom:18px; min-height:18px}
+.dot{width:7px; height:7px; border-radius:50%; background:var(--fg-muted); flex:none}
+.dot.live{background:var(--ok)}
+.dot.err{background:var(--crit)}
+
+.metrics{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px}
+.metric{padding:16px}
+.metric .label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--fg-muted); font-weight:600}
+.metric .value{font-size:30px; font-weight:600; margin-top:6px}
+.metric .value small{font-size:14px; color:var(--fg-muted); font-weight:500}
+
+.breakdown{padding:18px; margin-bottom:16px}
+.breakdown h2{font-size:15px; font-weight:600; margin-bottom:14px}
+.bar-row{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+.bar-row:last-child{margin-bottom:0}
+.bar-label{width:76px; flex:none; font-size:12px; font-weight:600}
+.bar-track{flex:1; min-width:0; height:10px; border-radius:6px; background:var(--surface-2); overflow:hidden}
+.bar-fill{height:100%; border-radius:6px; transition:width .5s ease}
+.bar-fill.ok{background:var(--ok)}
+.bar-fill.tox{background:var(--crit)}
+.bar-fill.spam{background:var(--warn)}
+.bar-pct{width:64px; flex:none; text-align:right; font-size:12px; color:var(--fg-muted)}
+
+.alerts{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:16px}
+.alert{padding:14px; border-radius:12px; border:1px solid var(--border)}
+.alert .top{display:flex; justify-content:space-between; align-items:center; gap:8px}
+.alert .name{font-size:12px; font-weight:700}
+.alert .cond{font-size:11px; color:var(--fg-muted); margin-top:4px}
+.chip{font-size:10px; font-weight:700; letter-spacing:.03em; padding:3px 8px; border-radius:999px; white-space:nowrap}
+.alert.crit{background:var(--crit-soft); border-color:color-mix(in srgb, var(--crit) 35%, var(--border))}
+.alert.crit .chip{background:var(--crit); color:#fff}
+.alert.ok{background:var(--ok-soft); border-color:color-mix(in srgb, var(--ok) 35%, var(--border))}
+.alert.ok .chip{background:var(--ok); color:#fff}
+.alert.neutral .chip{background:var(--surface-2); color:var(--fg-muted)}
+
+details.logs{padding:14px 18px; margin-bottom:16px}
+details.logs summary{cursor:pointer; font-size:13px; font-weight:600; list-style:none; display:flex; justify-content:space-between; align-items:center}
+details.logs summary::-webkit-details-marker{display:none}
+details.logs summary::after{content:"▾"; color:var(--fg-muted); transition:transform .15s}
+details.logs[open] summary::after{transform:rotate(180deg)}
+.raw{white-space:pre-wrap; font-size:12px; line-height:1.6; color:var(--fg-muted); margin-top:12px; padding-top:12px; border-top:1px solid var(--border)}
+
+.empty{padding:28px 18px; text-align:center; color:var(--fg-muted); font-size:13px}
+.empty b{color:var(--fg); display:block; font-size:15px; margin-bottom:6px; font-family:'Fraunces',serif; font-weight:600}
+
+footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center}
+
+.chat-panel{padding:16px; margin-bottom:16px}
+.chat-panel .chat-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+.chat-panel .chat-head h3{font-size:14px; font-weight:600; font-family:'Inter',sans-serif}
+.chat-panel .chat-head .hint{font-size:11px; color:var(--fg-muted)}
+.chat-log{max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:4px 2px 10px}
+.chat-log:empty::after{content:"Écris un message ci-dessous pour tester l'agent en direct."; color:var(--fg-muted); font-size:12px}
+.bubble{max-width:82%; padding:9px 12px; border-radius:12px; font-size:13px; line-height:1.5; word-wrap:break-word}
+.bubble.user{align-self:flex-end; background:var(--accent-soft); color:var(--fg); border-bottom-right-radius:3px}
+.bubble.agent{align-self:flex-start; background:var(--surface-2); border:1px solid var(--border); border-bottom-left-radius:3px}
+.bubble.agent.decision-OK{border-left:3px solid var(--ok)}
+.bubble.agent.decision-TOXIQUE{border-left:3px solid var(--crit)}
+.bubble.agent.decision-SPAM{border-left:3px solid var(--warn)}
+.bubble.agent.pending{color:var(--fg-muted); font-style:italic}
+.bubble .meta{display:block; margin-top:5px; font-size:11px; color:var(--fg-muted)}
+.bubble .tag{display:inline-block; font-size:10px; font-weight:700; letter-spacing:.03em; padding:1px 7px; border-radius:999px; margin-right:6px}
+.bubble .tag.OK{background:var(--ok-soft); color:var(--ok)}
+.bubble .tag.TOXIQUE{background:var(--crit-soft); color:var(--crit)}
+.bubble .tag.SPAM{background:var(--warn-soft); color:var(--warn)}
+.chat-input-row{display:flex; gap:8px; margin-top:6px}
+.chat-input-row input{flex:1 1 auto; min-width:0; background:var(--surface-2); border:1px solid var(--border); color:var(--fg);
+  border-radius:8px; padding:9px 11px; font-size:13px; font-family:inherit}
+.chat-input-row input:focus{outline:2px solid var(--accent); outline-offset:1px}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+
+<header>
+  <div>
+    <div class="eyebrow">Jour 21 · Agentic AI</div>
+    <h1>Observabilité des agents</h1>
+    <p>Agent_Moderateur_v1 — métriques du flow Dashboard</p>
+  </div>
+</header>
+
+<div class="card setup" style="display:none">
+  <div class="tabs">
+    <button class="tab active" data-tab="api">Connexion API</button>
+    <button class="tab" data-tab="paste">Coller un rapport</button>
+  </div>
+
+  <div class="panel active" id="panel-api">
+    <div class="steps">Lance <b>dashboard_backend.py</b> en local, expose-le avec ngrok, puis colle ici l'URL ngrok suivie de <b>/metrics</b> (ex. https://xxxx.ngrok-free.app/metrics).</div>
+    <input id="endpoint" type="text" placeholder="https://xxxx.ngrok-free.app/metrics">
+    <div class="row" style="justify-content:space-between; align-items:center">
+      <label class="auto-row"><input type="checkbox" id="autoRefresh" style="width:auto; margin:0"> Actualiser toutes les 10s</label>
+      <button class="primary" id="connectBtn">Charger</button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-paste">
+    <div class="steps">
+      <b>1.</b> Ouvre le flow « Dashboard » dans l'app, lance le Playground.
+      <b>2.</b> Copie le rapport complet que renvoie l'agent analyste.
+      <b>3.</b> Colle-le ci-dessous et clique sur Analyser.
+    </div>
+    <textarea id="reportInput" placeholder="Colle ici le rapport de l'agent analyste (📊 Mini-rapport de modération…)"></textarea>
+    <div class="row">
+      <button class="ghost" id="clearBtn">Effacer</button>
+      <button class="primary" id="analyzeBtn">Analyser</button>
+    </div>
+  </div>
+</div>
+
+<div class="card chat-panel">
+  <div class="chat-head">
+    <h3>💬 Tester l'agent en direct</h3>
+    <span class="hint">session persistante · mémoire activée</span>
+  </div>
+  <div class="chat-log" id="chatLog"></div>
+  <div class="chat-input-row">
+    <input id="testText" type="text" placeholder="Écris un message à classer…">
+    <button class="primary" id="testBtn">Envoyer</button>
+  </div>
+</div>
+
+<div class="status-row" id="statusRow">
+  <span class="dot" id="statusDot"></span>
+  <span id="statusText">En attente d'un rapport.</span>
+</div>
+
+<div id="content">
+  <div class="card empty">
+    <b>Pas encore de données</b>
+    Colle le rapport de l'agent analyste ci-dessus puis clique sur Analyser pour voir les métriques.
+  </div>
+</div>
+
+<details class="logs card" id="rawDetails" hidden>
+  <summary>Rapport brut de l'agent analyste</summary>
+  <div class="raw" id="rawText"></div>
+</details>
+
+<footer>Source : FusionDB · collection moderation_logs · stg-agentic.abafusion.ai</footer>
+
+<script>
+(function(){
+  var reportInput = document.getElementById('reportInput');
+  var analyzeBtn = document.getElementById('analyzeBtn');
+  var clearBtn = document.getElementById('clearBtn');
+  var endpointEl = document.getElementById('endpoint');
+  var connectBtn = document.getElementById('connectBtn');
+  var autoRefreshEl = document.getElementById('autoRefresh');
+  var statusDot = document.getElementById('statusDot');
+  var statusText = document.getElementById('statusText');
+  var content = document.getElementById('content');
+  var rawDetails = document.getElementById('rawDetails');
+  var rawText = document.getElementById('rawText');
+  var autoTimer = null;
+
+  document.querySelectorAll('.tab').forEach(function(tab){
+    tab.addEventListener('click', function(){
+      document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Automatique : si la page est servie par le backend lui-meme (meme
+  // origine, ex. http://localhost:8010/ ou l'URL ngrok racine), on devine
+  // directement l'URL /metrics — plus besoin de copier-coller a la main.
+  var sameOriginGuess = (window.location.protocol.indexOf('http') === 0)
+    ? window.location.origin + '/metrics'
+    : '';
+
+  try {
+    var savedEndpoint = localStorage.getItem('obs_endpoint');
+    if (savedEndpoint) {
+      endpointEl.value = savedEndpoint;
+    } else if (sameOriginGuess) {
+      endpointEl.value = sameOriginGuess;
+    }
+    var saved = localStorage.getItem('obs_last_report');
+    if (saved) {
+      reportInput.value = saved;
+      analyze();
+    }
+  } catch(e) {}
+
+  // Chargement automatique au demarrage + rafraichissement auto si on est
+  // servi en same-origin (on sait que /metrics va repondre direct, pas
+  // besoin que l'utilisateur clique "Charger").
+  if (endpointEl.value) {
+    autoRefreshEl.checked = true;
+    loadFromApi();
+    autoTimer = setInterval(loadFromApi, 10000);
+  }
+
+  function setStatus(kind, text){
+    statusDot.className = 'dot' + (kind === 'live' ? ' live' : kind === 'err' ? ' err' : '');
+    statusText.textContent = text;
+  }
+
+  function findReportText(obj, depth){
+    if (depth > 8 || obj == null) return null;
+    if (typeof obj === 'string') {
+      if (obj.indexOf('Taux de succès') !== -1 || obj.indexOf('Mini') !== -1 || obj.indexOf('ALERTE') !== -1) return obj;
+      return null;
+    }
+    if (Array.isArray(obj)) {
+      for (var i = 0; i < obj.length; i++){
+        var r = findReportText(obj[i], depth+1);
+        if (r) return r;
+      }
+      return null;
+    }
+    if (typeof obj === 'object') {
+      for (var k in obj){
+        if (!Object.prototype.hasOwnProperty.call(obj,k)) continue;
+        var r2 = findReportText(obj[k], depth+1);
+        if (r2) return r2;
+      }
+    }
+    return null;
+  }
+
+  function numFR(s){
+    return parseFloat(String(s).replace(',', '.'));
+  }
+
+  function parseReport(text){
+    var out = { total: null, succes: null, ok: null, okPct: null, tox: null, toxPct: null, spam: null, spamPct: null, alerts: [] };
+
+    var mTotal = text.match(/Total analysé\s*:?\s*(\d+)/i);
+    if (mTotal) out.total = parseInt(mTotal[1], 10);
+
+    var mSucces = text.match(/Taux de succès[^:\n]*:\s*([\d.,]+)\s*%/i);
+    if (mSucces) out.succes = numFR(mSucces[1]);
+
+    var mOK = text.match(/OK\D{0,12}(\d+)\D{0,12}([\d.,]+)\s*%/i);
+    if (mOK) { out.ok = parseInt(mOK[1],10); out.okPct = numFR(mOK[2]); }
+
+    var mTox = text.match(/TOXIQUE\D{0,12}(\d+)\D{0,12}([\d.,]+)\s*%/i);
+    if (mTox) { out.tox = parseInt(mTox[1],10); out.toxPct = numFR(mTox[2]); }
+
+    var mSpam = text.match(/SPAM\D{0,12}(\d+)\D{0,12}([\d.,]+)\s*%/i);
+    if (mSpam) { out.spam = parseInt(mSpam[1],10); out.spamPct = numFR(mSpam[2]); }
+
+    function alertStatus(re){
+      var m = text.match(re);
+      if (!m) return null;
+      return /DÉCLENCHÉE/i.test(m[1]) ? 'crit' : 'ok';
+    }
+    var echecStatus = alertStatus(/ALERTE TAUX D.ÉCHEC[\s\S]{0,100}?(DÉCLENCHÉE|Normal)/i);
+    var toxStatus = alertStatus(/ALERTE VOLUME TOXIQUE[\s\S]{0,100}?(DÉCLENCHÉE|Normal)/i);
+    var coutStatus = alertStatus(/ALERTE COÛT[\s\S]{0,100}?(DÉCLENCHÉE|Normal)/i);
+
+    out.alerts = [
+      { name: "Taux d'échec", cond: 'Taux de succès < 80%', status: echecStatus },
+      { name: 'Volume toxique', cond: 'Part TOXIQUE > 30%', status: toxStatus },
+      { name: 'Coût', cond: '> 50 documents analysés', status: coutStatus }
+    ];
+    return out;
+  }
+
+  function render(parsed, raw){
+    if (parsed.total == null && parsed.succes == null && !parsed.alerts.some(function(a){return a.status;})) {
+      content.innerHTML = '<div class="card empty"><b>Rapport reçu, mais non reconnu</b>Le format du rapport n’a pas pu être analysé automatiquement. Le texte brut de l’agent est affiché ci-dessous.</div>';
+      rawDetails.hidden = false;
+      rawDetails.open = true;
+      rawText.textContent = raw;
+      return;
+    }
+
+    var html = '';
+    html += '<div class="metrics">';
+    html += '<div class="card metric"><div class="label">Documents analysés</div><div class="value mono">' + (parsed.total != null ? parsed.total : '—') + '</div></div>';
+    html += '<div class="card metric"><div class="label">Taux de succès</div><div class="value mono">' + (parsed.succes != null ? parsed.succes.toLocaleString('fr-FR') + '<small>%</small>' : '—') + '</div></div>';
+    html += '<div class="card metric"><div class="label">Latence moyenne</div><div class="value mono">' + (parsed.avgLatency != null ? parsed.avgLatency.toLocaleString('fr-FR') + '<small>ms</small>' : '<small>n/a</small>') + '</div></div>';
+    html += '<div class="card metric"><div class="label">Coût total</div><div class="value mono">' + (parsed.totalCost != null ? '$' + parsed.totalCost.toLocaleString('fr-FR', {minimumFractionDigits:2}) : '—') + '</div></div>';
+    var activeAlerts = parsed.alerts.filter(function(a){ return a.status === 'crit'; }).length;
+    html += '<div class="card metric"><div class="label">Alertes actives</div><div class="value mono" style="color:' + (activeAlerts > 0 ? 'var(--crit)' : 'var(--ok)') + '">' + activeAlerts + '<small> / ' + parsed.alerts.length + '</small></div></div>';
+    html += '</div>';
+    if (parsed.totalCost === 0) {
+      html += '<div style="font-size:11px; color:var(--fg-muted); margin:-10px 0 16px">💡 Coût réel mesuré à $0.00 — Ollama self-hébergé (clé gratuite), pas une estimation.</div>';
+    }
+
+    if (parsed.ok != null || parsed.tox != null || parsed.spam != null) {
+      html += '<div class="card breakdown"><h2>Répartition des décisions</h2>';
+      html += bar('OK', parsed.okPct, parsed.ok, 'ok');
+      html += bar('TOXIQUE', parsed.toxPct, parsed.tox, 'tox');
+      html += bar('SPAM', parsed.spamPct, parsed.spam, 'spam');
+      html += '</div>';
+    }
+
+    html += '<div class="alerts">';
+    parsed.alerts.forEach(function(a){
+      var cls = a.status === 'crit' ? 'crit' : a.status === 'ok' ? 'ok' : 'neutral';
+      var chip = a.status === 'crit' ? 'DÉCLENCHÉE' : a.status === 'ok' ? 'NORMAL' : 'N/A';
+      html += '<div class="card alert ' + cls + '"><div class="top"><span class="name">' + a.name + '</span><span class="chip">' + chip + '</span></div><div class="cond">' + a.cond + '</div></div>';
+    });
+    html += '</div>';
+
+    content.innerHTML = html;
+    rawDetails.hidden = false;
+    rawText.textContent = raw;
+  }
+
+  function bar(label, pct, count, cls){
+    var p = pct == null ? 0 : pct;
+    return '<div class="bar-row"><span class="bar-label">' + label + '</span>' +
+      '<div class="bar-track"><div class="bar-fill ' + cls + '" style="width:' + Math.max(0, Math.min(100,p)) + '%"></div></div>' +
+      '<span class="bar-pct mono">' + (count != null ? count + ' · ' : '') + (pct != null ? pct.toLocaleString('fr-FR') + '%' : '—') + '</span></div>';
+  }
+
+  function analyze(){
+    var text = reportInput.value.trim();
+    if (!text) { setStatus('err', 'Colle un rapport avant d\'analyser.'); return; }
+
+    var parsed = parseReport(text);
+    render(parsed, text);
+    setStatus('live', 'Analysé — ' + new Date().toLocaleTimeString('fr-FR'));
+    try { localStorage.setItem('obs_last_report', text); } catch(e) {}
+  }
+
+  analyzeBtn.addEventListener('click', analyze);
+  clearBtn.addEventListener('click', function(){
+    reportInput.value = '';
+    content.innerHTML = '<div class="card empty"><b>Pas encore de données</b>Colle le rapport de l\'agent analyste ci-dessus puis clique sur Analyser pour voir les métriques.</div>';
+    rawDetails.hidden = true;
+    setStatus('', 'En attente d\'un rapport.');
+    try { localStorage.removeItem('obs_last_report'); } catch(e) {}
+  });
+
+  function backendJsonToParsed(data){
+    var out = { total: data.total, succes: data.taux_succes,
+      ok: data.ok.count, okPct: data.ok.pct,
+      tox: data.toxique.count, toxPct: data.toxique.pct,
+      spam: data.spam.count, spamPct: data.spam.pct,
+      avgLatency: data.avg_latency_ms,
+      totalCost: data.total_cost_usd,
+      alerts: [
+        { name: "Taux d'échec", cond: data.alerts.taux_echec.condition, status: data.alerts.taux_echec.declenchee ? 'crit' : 'ok' },
+        { name: 'Volume toxique', cond: data.alerts.volume_toxique.condition, status: data.alerts.volume_toxique.declenchee ? 'crit' : 'ok' },
+        { name: 'Latence élevée', cond: data.alerts.latence_elevee.condition, status: data.alerts.latence_elevee.declenchee ? 'crit' : 'ok' }
+      ]
+    };
+    return out;
+  }
+
+  function logsToRawText(data){
+    var lines = ['📊 ' + data.total + ' documents · Taux de succès : ' + data.taux_succes + '%',
+      'Latence moyenne : ' + (data.avg_latency_ms != null ? data.avg_latency_ms + 'ms (sur ' + data.nb_mesures_latence + ' mesures)' : 'aucune mesure'),
+      'Coût total : $' + data.total_cost_usd.toFixed(2) + ' — ' + data.cost_note, ''];
+    data.logs.forEach(function(l){
+      lines.push('[' + l.timestamp + '] ' + l.agent_id + ' → ' + l.decision +
+        (l.duration_ms != null ? ' (' + l.duration_ms + 'ms)' : '') + ' — ' + l.raw);
+    });
+    return lines.join('\n');
+  }
+
+  function loadFromApi(){
+    var endpoint = endpointEl.value.trim();
+    if (!endpoint) { setStatus('err', "Renseigne l'URL /metrics."); return; }
+
+    setStatus('', 'Chargement…');
+    connectBtn.disabled = true;
+
+    fetch(endpoint, { method: 'GET', headers: { 'Accept': 'application/json', 'ngrok-skip-browser-warning': 'true' } })
+    .then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(data){
+      var parsed = backendJsonToParsed(data);
+      render(parsed, logsToRawText(data));
+      setStatus('live', 'Connecté — ' + new Date().toLocaleTimeString('fr-FR'));
+      try { localStorage.setItem('obs_endpoint', endpoint); } catch(e) {}
+    })
+    .catch(function(err){
+      setStatus('err', 'Échec : ' + err.message + ' — vérifie que dashboard_backend.py tourne et que l\'URL ngrok + /metrics est correcte.');
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; autoRefreshEl.checked = false; }
+    })
+    .finally(function(){
+      connectBtn.disabled = false;
+    });
+  }
+
+  connectBtn.addEventListener('click', loadFromApi);
+  autoRefreshEl.addEventListener('change', function(){
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (autoRefreshEl.checked) {
+      loadFromApi();
+      autoTimer = setInterval(loadFromApi, 10000);
+    }
+  });
+
+  var testText = document.getElementById('testText');
+  var testBtn = document.getElementById('testBtn');
+  var chatLog = document.getElementById('chatLog');
+
+  function moderateBaseUrl(){
+    var endpoint = endpointEl.value.trim();
+    return endpoint.replace(/\/metrics\/?$/, '');
+  }
+
+  function getSessionId(){
+    try {
+      var sid = localStorage.getItem('obs_session_id');
+      if (!sid) {
+        sid = 'dash-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem('obs_session_id', sid);
+      }
+      return sid;
+    } catch(e) {
+      return 'dash-nostorage';
+    }
+  }
+
+  function esc(s){
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function parseDecision(decisionLog){
+    var upper = (decisionLog || '').toUpperCase();
+    if (upper.indexOf('TOXIQUE') !== -1) return 'TOXIQUE';
+    if (upper.indexOf('SPAM') !== -1) return 'SPAM';
+    if (upper.indexOf('DECISION: OK') !== -1 || upper.indexOf('DECISION:OK') !== -1) return 'OK';
+    return null;
+  }
+
+  function addUserBubble(text){
+    var b = document.createElement('div');
+    b.className = 'bubble user';
+    b.textContent = text;
+    chatLog.appendChild(b);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return b;
+  }
+
+  function addPendingBubble(){
+    var b = document.createElement('div');
+    b.className = 'bubble agent pending';
+    b.textContent = "Analyse en cours…";
+    chatLog.appendChild(b);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return b;
+  }
+
+  function resolveBubble(bubble, data){
+    var decision = parseDecision(data.decision_log);
+    var raisonMatch = /RAISON:\s*(.+)$/i.exec(data.decision_log || '');
+    var raison = raisonMatch ? raisonMatch[1].trim() : (data.decision_log || '');
+    bubble.className = 'bubble agent' + (decision ? ' decision-' + decision : '');
+    var tag = decision ? '<span class="tag ' + decision + '">' + decision + '</span>' : '';
+    bubble.innerHTML = tag + esc(raison) +
+      '<span class="meta">⏱ ' + esc(data.duration_ms) + 'ms · 💰 $' + esc((data.cost_usd || 0).toFixed ? data.cost_usd.toFixed(2) : data.cost_usd) + '</span>';
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function resolveBubbleError(bubble, message){
+    bubble.className = 'bubble agent decision-TOXIQUE';
+    bubble.innerHTML = '<span class="tag TOXIQUE">ÉCHEC</span>' + esc(message);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  testBtn.addEventListener('click', function(){
+    var text = testText.value.trim();
+    var base = moderateBaseUrl();
+    if (!text) { return; }
+    if (!base) { addPendingBubble(); resolveBubbleError(chatLog.lastChild, "Renseigne d'abord l'URL /metrics ci-dessus."); return; }
+
+    addUserBubble(text);
+    var pending = addPendingBubble();
+    testText.value = '';
+    testBtn.disabled = true;
+
+    fetch(base + '/moderate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+      body: JSON.stringify({ text: text, session_id: getSessionId() })
+    })
+    .then(function(res){ return res.json(); })
+    .then(function(data){
+      if (data.error) throw new Error(data.error);
+      resolveBubble(pending, data);
+      loadFromApi();
+    })
+    .catch(function(err){
+      resolveBubbleError(pending, err.message);
+    })
+    .finally(function(){
+      testBtn.disabled = false;
+    });
+  });
+
+  testText.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); testBtn.click(); }
+  });
+})();
+</script>

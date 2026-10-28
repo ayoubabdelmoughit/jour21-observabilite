@@ -1,0 +1,34 @@
+name: Tests automatises (Jour 22 - CI/CD Agentique)
+
+# Declenche les tests a chaque push et chaque pull request, sur n'importe
+# quelle branche - c'est l'etape "Execution des tests" du pipeline CI/CD vu
+# en cours (Push GitHub -> Tests -> Validation -> Deploiement).
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Recuperer le code (checkout)
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Installer les dependances
+        run: pip install -r requirements.txt
+
+      - name: Verifier la syntaxe (compilation)
+        run: python -m py_compile agent_graph.py dashboard_backend_v2.py
+
+      - name: Lancer les tests automatises (pytest)
+        env:
+          # Cle factice : les tests mockent systematiquement l'appel LLM
+          # (_llm), donc aucun vrai appel reseau a Ollama n'est fait en CI.
+          OLLAMA_API_KEY: ci-fake-key-tests-only
+        run: pytest tests/ -v

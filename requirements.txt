@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pymongo
+python-dotenv
+langchain-core
+langchain-ollama
+langgraph
+
+# Tests (Jour 22 - Tests Automatises & CI/CD Agentique)
+pytest
