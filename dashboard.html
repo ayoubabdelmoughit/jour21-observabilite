@@ -130,6 +130,32 @@ details.logs[open] summary::after{transform:rotate(180deg)}
 
 footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center}
 
+/* Pipeline CI/CD (Jour 22 - GitHub Actions) */
+.ci-card{padding:16px; margin-bottom:16px}
+.ci-card .ci-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap}
+.ci-card .ci-head h3{font-size:14px; font-weight:600; font-family:'Inter',sans-serif}
+.ci-card .ci-head .repo-link{font-size:11px; color:var(--fg-muted); text-decoration:none}
+.ci-card .ci-head .repo-link:hover{color:var(--accent)}
+.ci-runs{display:flex; flex-direction:column; gap:8px}
+.ci-run{display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2)}
+.ci-run .ci-dot{width:10px; height:10px; border-radius:50%; flex:none; background:var(--fg-muted)}
+.ci-run.success .ci-dot{background:var(--ok)}
+.ci-run.failure .ci-dot{background:var(--crit)}
+.ci-run.running .ci-dot{background:var(--warn); animation:ci-pulse 1.2s ease-in-out infinite}
+@keyframes ci-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ci-run .ci-main{flex:1; min-width:0}
+.ci-run .ci-title{font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ci-run .ci-meta{font-size:11px; color:var(--fg-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ci-run .ci-right{flex:none; display:flex; align-items:center; gap:10px}
+.ci-run .ci-badge{font-size:10px; font-weight:700; letter-spacing:.03em; padding:3px 8px; border-radius:999px; white-space:nowrap}
+.ci-run.success .ci-badge{background:var(--ok-soft); color:var(--ok)}
+.ci-run.failure .ci-badge{background:var(--crit-soft); color:var(--crit)}
+.ci-run.running .ci-badge{background:var(--warn-soft); color:var(--warn)}
+.ci-run .ci-duration{font-size:11px; color:var(--fg-muted)}
+.ci-run .ci-link{font-size:11px; color:var(--accent); text-decoration:none; flex:none}
+.ci-run .ci-link:hover{text-decoration:underline}
+.ci-card .ci-empty{font-size:12px; color:var(--fg-muted); padding:8px 2px}
+
 .chat-panel{padding:16px; margin-bottom:16px}
 .chat-panel .chat-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
 .chat-panel .chat-head h3{font-size:14px; font-weight:600; font-family:'Inter',sans-serif}
@@ -204,6 +230,16 @@ footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center
   </div>
 </div>
 
+<div class="card ci-card">
+  <div class="ci-head">
+    <h3>🧪 Pipeline CI/CD — Tests automatisés (GitHub Actions)</h3>
+    <a class="repo-link" id="ciRepoLink" href="#" target="_blank" rel="noopener">voir le dépôt ↗</a>
+  </div>
+  <div class="ci-runs" id="ciRuns">
+    <div class="ci-empty">Chargement des derniers runs…</div>
+  </div>
+</div>
+
 <div class="status-row" id="statusRow">
   <span class="dot" id="statusDot"></span>
   <span id="statusText">En attente d'un rapport.</span>
@@ -236,7 +272,10 @@ footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center
   var content = document.getElementById('content');
   var rawDetails = document.getElementById('rawDetails');
   var rawText = document.getElementById('rawText');
+  var ciRunsEl = document.getElementById('ciRuns');
+  var ciRepoLink = document.getElementById('ciRepoLink');
   var autoTimer = null;
+  var ciTimer = null;
 
   document.querySelectorAll('.tab').forEach(function(tab){
     tab.addEventListener('click', function(){
@@ -275,6 +314,8 @@ footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center
     autoRefreshEl.checked = true;
     loadFromApi();
     autoTimer = setInterval(loadFromApi, 10000);
+    loadCiStatus();
+    ciTimer = setInterval(loadCiStatus, 30000);
   }
 
   function setStatus(kind, text){
@@ -475,6 +516,79 @@ footer{margin-top:22px; font-size:11px; color:var(--fg-muted); text-align:center
       autoTimer = setInterval(loadFromApi, 10000);
     }
   });
+
+  // --- Pipeline CI/CD (Jour 22) : lit /ci-status (meme origine que
+  // /metrics), qui interroge l'API GitHub Actions du depot public et
+  // retourne les derniers runs du workflow de tests.
+  function esc2(s){
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function timeAgo(iso){
+    if (!iso) return '';
+    var diffS = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (diffS < 60) return 'il y a ' + diffS + 's';
+    var diffMin = Math.round(diffS / 60);
+    if (diffMin < 60) return 'il y a ' + diffMin + ' min';
+    var diffH = Math.round(diffMin / 60);
+    if (diffH < 24) return 'il y a ' + diffH + 'h';
+    return 'il y a ' + Math.round(diffH / 24) + 'j';
+  }
+
+  function runStateClass(run){
+    if (run.status !== 'completed') return 'running';
+    return run.conclusion === 'success' ? 'success' : 'failure';
+  }
+
+  function runBadgeText(run){
+    if (run.status !== 'completed') return run.status === 'queued' ? 'EN ATTENTE' : 'EN COURS';
+    if (run.conclusion === 'success') return 'RÉUSSI';
+    if (run.conclusion === 'failure') return 'ÉCHOUÉ';
+    return (run.conclusion || 'INCONNU').toUpperCase();
+  }
+
+  function renderCiRuns(data){
+    if (data.error) {
+      ciRunsEl.innerHTML = '<div class="ci-empty">⚠️ ' + esc2(data.error) + '</div>';
+      return;
+    }
+    if (!data.runs || !data.runs.length) {
+      ciRunsEl.innerHTML = '<div class="ci-empty">Aucun run trouvé pour l\'instant.</div>';
+      return;
+    }
+    var html = '';
+    data.runs.slice(0, 6).forEach(function(run){
+      var cls = runStateClass(run);
+      html += '<div class="ci-run ' + cls + '">';
+      html += '<span class="ci-dot"></span>';
+      html += '<div class="ci-main">';
+      html += '<div class="ci-title">#' + esc2(run.run_number) + ' — ' + esc2(run.commit_message || run.name) + '</div>';
+      html += '<div class="ci-meta">' + esc2(run.branch) + ' · ' + esc2(run.commit_sha) + ' · ' + esc2(run.actor) + ' · ' + timeAgo(run.created_at) + '</div>';
+      html += '</div>';
+      html += '<div class="ci-right">';
+      if (run.duration_s != null) html += '<span class="ci-duration mono">' + run.duration_s + 's</span>';
+      html += '<span class="ci-badge">' + runBadgeText(run) + '</span>';
+      if (run.html_url) html += '<a class="ci-link" href="' + esc2(run.html_url) + '" target="_blank" rel="noopener">voir ↗</a>';
+      html += '</div></div>';
+    });
+    ciRunsEl.innerHTML = html;
+  }
+
+  function loadCiStatus(){
+    var base = moderateBaseUrl();
+    if (!base) { return; }
+    fetch(base + '/ci-status', { headers: { 'Accept': 'application/json', 'ngrok-skip-browser-warning': 'true' } })
+    .then(function(res){ return res.json(); })
+    .then(function(data){
+      if (data.repo) { ciRepoLink.href = 'https://github.com/' + data.repo + '/actions'; }
+      renderCiRuns(data);
+    })
+    .catch(function(err){
+      ciRunsEl.innerHTML = '<div class="ci-empty">⚠️ Échec de connexion à /ci-status (' + esc2(err.message) + ')</div>';
+    });
+  }
 
   var testText = document.getElementById('testText');
   var testBtn = document.getElementById('testBtn');

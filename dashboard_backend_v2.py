@@ -38,7 +38,9 @@ Le panneau "Tester l'agent" (chat) appelle /moderate pour chaque message.
 """
 
 import os
+from datetime import datetime
 
+import requests
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +58,12 @@ DB_NAME = "jour21_observabilite"
 COLLECTION_NAME = "moderation_logs"
 
 LATENCE_SEUIL_MS = 3000
+
+# Depot GitHub public qui heberge le pipeline CI/CD (Jour 22) : utilise par
+# /ci-status pour afficher les derniers runs de tests dans le dashboard,
+# onglet "Pipeline CI/CD". API publique GitHub, pas besoin de token pour un
+# depot public (limite ~60 requetes/heure, largement suffisant ici).
+GITHUB_REPO = "ayoubabdelmoughit/jour21-observabilite"
 # ============================================
 
 app = FastAPI(title="Jour21 Observabilite Backend v2 (LangGraph)")
@@ -186,6 +194,56 @@ def get_dlq():
     for d in docs:
         d["id"] = str(d.pop("_id", ""))
     return {"total": len(docs), "items": docs}
+
+
+@app.get("/ci-status")
+def get_ci_status():
+    """Interroge l'API publique de GitHub pour recuperer les derniers runs
+    du pipeline CI/CD (workflow .github/workflows/tests.yml, Jour 22) et les
+    retourne dans un format simple consomme par l'onglet "Pipeline CI/CD" du
+    dashboard. N'a besoin d'aucun token (depot public)."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs",
+            params={"per_page": 10},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "jour21-observabilite-dashboard",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return {"repo": GITHUB_REPO, "error": f"API GitHub injoignable ({e})", "runs": []}
+
+    runs = []
+    for run in data.get("workflow_runs", []):
+        duration_s = None
+        try:
+            if run.get("status") == "completed" and run.get("run_started_at") and run.get("updated_at"):
+                start = datetime.fromisoformat(run["run_started_at"].replace("Z", "+00:00"))
+                end = datetime.fromisoformat(run["updated_at"].replace("Z", "+00:00"))
+                duration_s = round((end - start).total_seconds())
+        except Exception:
+            duration_s = None
+
+        head_commit = run.get("head_commit") or {}
+        runs.append({
+            "run_number": run.get("run_number"),
+            "name": run.get("display_title") or run.get("name") or "run",
+            "status": run.get("status"),          # queued / in_progress / completed
+            "conclusion": run.get("conclusion"),  # success / failure / cancelled / None
+            "branch": run.get("head_branch"),
+            "commit_sha": (run.get("head_sha") or "")[:7],
+            "commit_message": (head_commit.get("message") or "").split("\n")[0],
+            "actor": (run.get("actor") or {}).get("login"),
+            "created_at": run.get("created_at"),
+            "duration_s": duration_s,
+            "html_url": run.get("html_url"),
+        })
+
+    return {"repo": GITHUB_REPO, "runs": runs}
 
 
 @app.get("/")

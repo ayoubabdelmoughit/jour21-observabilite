@@ -5,6 +5,7 @@ python-dotenv
 langchain-core
 langchain-ollama
 langgraph
+requests
 
 # Tests (Jour 22 - Tests Automatises & CI/CD Agentique)
 pytest
